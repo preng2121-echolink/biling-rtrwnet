@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECHOLINK - Billing RT/RW Net</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0a1128;
+            --bg-card: #1c2541;
+            --accent-blue: #0077b6;
+            --accent-glow: #00b4d8;
+            --text-light: #edf2f4;
+            --danger-red: #ef233c;
+            --success-green: #38b000;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-light); min-height: 100vh; }
+        
+        @keyframes blink-red {
+            0% { border-color: var(--danger-red); box-shadow: 0 0 5px var(--danger-red); }
+            50% { border-color: transparent; box-shadow: none; }
+            100% { border-color: var(--danger-red); box-shadow: 0 0 5px var(--danger-red); }
+        }
+        .unpaid-card { border: 2px solid var(--danger-red); animation: blink-red 1.5s infinite; }
+
+        header { background: var(--bg-card); padding: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        header h1 { color: var(--accent-glow); font-size: 1.2rem; }
+        nav { display: flex; gap: 5px; flex-wrap: wrap; }
+        .nav-btn { background: var(--accent-blue); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        
+        .container { padding: 1rem; max-width: 1000px; margin: 0 auto; }
+        .card { background: var(--bg-card); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        
+        .form-group { margin-bottom: 0.8rem; }
+        label { display: block; margin-bottom: 0.3rem; color: #a0aec0; font-size: 0.9rem; }
+        input, select { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #4a5568; background: #0d1b2a; color: white; }
+        
+        button { background: var(--accent-blue); color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button.btn-danger { background: var(--danger-red); }
+        button.btn-success { background: var(--success-green); }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 1rem; }
+        .stat-card { background: var(--bg-card); padding: 0.8rem; border-radius: 6px; text-align: center; border-left: 3px solid var(--accent-glow); }
+        .stat-card h3 { font-size: 0.8rem; color: #a0aec0; }
+        .stat-card p { font-size: 1.1rem; font-weight: bold; margin-top: 0.3rem; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.85rem; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #2d3748; }
+        th { background-color: #0d1b2a; color: var(--accent-glow); }
+        
+        .badge { padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; }
+        .badge-success { background: var(--success-green); color: white; }
+        .badge-danger { background: var(--danger-red); color: white; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <header id="main-header" class="hidden">
+        <h1>ECHOLINK</h1>
+        <nav>
+            <button class="nav-btn" onclick="switchTab('dashboard')">Pelanggan</button>
+            <button class="nav-btn" onclick="switchTab('register')">Daftar Baru</button>
+            <button class="nav-btn" onclick="switchTab('search')">Cari</button>
+            <button class="nav-btn" onclick="switchTab('history')">History</button>
+            <button class="nav-btn btn-danger" onclick="logout()">Logout</button>
+        </nav>
+    </header>
+
+    <div class="container">
+        
+        <!-- Login Screen -->
+        <div id="auth-screen" class="card" style="max-width: 350px; margin: 30px auto;">
+            <h2 style="text-align: center; margin-bottom: 1rem; color: var(--accent-glow);">Login ECHOLINK</h2>
+            <div class="form-group">
+                <label>Akses Sebagai</label>
+                <select id="login-role" onchange="toggleAuthFields()">
+                    <option value="admin">Admin</option>
+                    <option value="user">User / Pelanggan</option>
+                </select>
+            </div>
+            <div id="admin-login-fields">
+                <div class="form-group">
+                    <label>Password Admin</label>
+                    <input type="password" id="admin-pass" placeholder="Password Admin">
+                </div>
+                <button style="width: 100%;" onclick="loginAdmin()">Login Admin</button>
+            </div>
+            <div id="user-login-fields" class="hidden">
+                <div class="form-group">
+                    <label>Nomor WhatsApp</label>
+                    <input type="text" id="user-phone" placeholder="08xxxxxxxx">
+                </div>
+                <button style="width: 100%;" onclick="loginUser()">Login User</button>
+            </div>
+        </div>
+
+        <!-- Dashboard Admin -->
+        <div id="dashboard-view" class="hidden">
+            <div class="stats-grid">
+                <div class="stat-card"><h3>Total Pelanggan</h3><p id="stat-total-cust">0</p></div>
+                <div class="stat-card"><h3>Total Pendapatan</h3><p id="stat-income" style="color: var(--success-green);">Rp 0</p></div>
+                <div class="stat-card"><h3>Belum Bayar</h3><p id="stat-unpaid" style="color: var(--danger-red);">Rp 0</p></div>
+            </div>
+
+            <div class="card" style="overflow-x: auto;">
+                <h3>Daftar Pelanggan</h3>
+                <table>
+                    <thead>
+                        <tr><th>Nama</th><th>No. WA</th><th>Paket</th><th>Harga</th><th>Jatuh Tempo</th><th>Status</th><th>Aksi</th></tr>
+                    </thead>
+                    <tbody id="customer-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Register View -->
+        <div id="register-view" class="card hidden">
+            <h3>Daftar Pelanggan Baru</h3><br>
+            <div class="form-group"><label>Nama</label><input type="text" id="reg-name"></div>
+            <div class="form-group"><label>No. WA</label><input type="text" id="reg-phone"></div>
+            <div class="form-group">
+                <label>Bandwidth</label>
+                <select id="reg-bandwidth"><option value="5Mbps">5Mbps</option><option value="10Mbps">10Mbps</option><option value="20Mbps">20Mbps</option></select>
+            </div>
+            <div class="form-group"><label>Harga (Rp)</label><input type="number" id="reg-price"></div>
+            <div class="form-group">
+                <label>Jatuh Tempo</label>
+                <select id="date-option" onchange="toggleDateInput()">
+                    <option value="auto">Otomatis (Tanggal 5)</option>
+                    <option value="manual">Manual</option>
+                </select>
+            </div>
+            <div class="form-group hidden" id="manual-date-group"><label>Tanggal Manual</label><input type="date" id="reg-date-manual"></div>
+            <button class="btn-success" onclick="registerCustomer()">Simpan Pelanggan</button>
+        </div>
+
+        <!-- Search View -->
+        <div id="search-view" class="card hidden">
+            <h3>Pencarian</h3><br>
+            <input type="text" id="search-input" placeholder="Cari nama atau HP..." onkeyup="searchCustomer()"><br><br>
+            <table>
+                <thead><tr><th>Nama</th><th>No WA</th><th>Paket</th><th>Status</th></tr></thead>
+                <tbody id="search-table-body"></tbody>
+            </table>
+        </div>
+
+        <!-- History View -->
+        <div id="history-view" class="card hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>History Pembayaran</h3>
+                <button class="btn-danger" onclick="clearHistory()">Hapus History</button>
+            </div><br>
+            <table>
+                <thead><tr><th>Tgl</th><th>Nama</th><th>Jumlah</th><th>Aksi</th></tr></thead>
+                <tbody id="history-table-body"></tbody>
+            </table>
+        </div>
+
+        <!-- User View -->
+        <div id="user-view" class="hidden">
+            <div class="card">
+                <h2>Halo, <span id="user-display-name"></span></h2><br>
+                <div id="user-status-card" class="card">
+                    <h3 id="user-bill-status">---</h3>
+                    <p id="user-bill-amount"></p>
+                </div>
+                <h3>Pembayaran via QRIS</h3><br>
+                <div style="text-align: center; background: white; padding: 10px; border-radius: 8px; color: black; max-width: 250px; margin: 0 auto;">
+                    <p><b>ECHOLINK</b></p>
+                    <p>NMID : ID1025403248889</p>
+                </div><br>
+                <button class="btn-success" style="width: 100%;" onclick="confirmPaymentWA()">Konfirmasi Bayar via WhatsApp</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // === PASTE KONFIGURASI FIREBASE KAMU DI SINI ===
+        const firebaseConfig = {
+              apiKey: "AIzaSyCbzX6OeoC92zT-m5NEpyK8e5uXrgwsgTg",
+              authDomain: "biling-rtrwnet.firebaseapp.com",
+              databaseURL: "https://biling-rtrwnet-default-rtdb.asia-southeast1.firebasedatabase.app",
+              projectId: "biling-rtrwnet",
+              storageBucket: "biling-rtrwnet.firebasestorage.app",
+              messagingSenderId: "612888647486",
+              appId: "1:612888647486:web:a84e9a237406b886dabe6f",
+              measurementId: "G-W77GJ2426C"
+            };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const ADMIN_WA = "0859171541929";
+        let adminPassword = "admin";
+        let customersData = [];
+        let historyData = [];
+        let currentUser = null;
+
+        // Real-time Database Sync
+        db.collection("customers").onSnapshot(snapshot => {
+            customersData = [];
+            snapshot.forEach(doc => customersData.push({ id: doc.id, ...doc.data() }));
+            renderDashboard();
+        });
+
+        db.collection("history").onSnapshot(snapshot => {
+            historyData = [];
+            snapshot.forEach(doc => historyData.push({ id: doc.id, ...doc.data() }));
+            renderHistory();
+        });
+
+        function toggleAuthFields() {
+            const role = document.getElementById('login-role').value;
+            document.getElementById('admin-login-fields').classList.toggle('hidden', role !== 'admin');
+            document.getElementById('user-login-fields').classList.toggle('hidden', role === 'admin');
+        }
+
+        function loginAdmin() {
+            if (document.getElementById('admin-pass').value === adminPassword) {
+                document.getElementById('auth-screen').classList.add('hidden');
+                document.getElementById('main-header').classList.remove('hidden');
+                switchTab('dashboard');
+            } else { alert('Password Salah!'); }
+        }
+
+        function loginUser() {
+            const phone = document.getElementById('user-phone').value;
+            const found = customersData.find(c => c.phone === phone);
+            if (found) {
+                currentUser = found;
+                document.getElementById('auth-screen').classList.add('hidden');
+                document.getElementById('main-header').classList.remove('hidden');
+                showUserPortal();
+            } else { alert('Nomor HP tidak terdaftar!'); }
+        }
+
+        function logout() { location.reload(); }
+
+        function switchTab(tab) {
+            ['dashboard-view', 'register-view', 'search-view', 'history-view', 'user-view'].forEach(v => document.getElementById(v).classList.add('hidden'));
+            document.getElementById(tab + '-view').classList.remove('hidden');
+        }
+
+        function toggleDateInput() {
+            document.getElementById('manual-date-group').classList.toggle('hidden', document.getElementById('date-option').value !== 'manual');
+        }
+
+        function registerCustomer() {
+            const name = document.getElementById('reg-name').value;
+            const phone = document.getElementById('reg-phone').value;
+            const bw = document.getElementById('reg-bandwidth').value;
+            const price = parseInt(document.getElementById('reg-price').value);
+            const dateOpt = document.getElementById('date-option').value;
+
+            let dueDate = "";
+            if (dateOpt === 'auto') {
+                const now = new Date();
+                let month = now.getMonth() + 1;
+                let year = now.getFullYear();
+                if (now.getDate() > 5) month++;
+                if (month > 12) { month = 1; year++; }
+                dueDate = `${year}-${String(month).padStart(2, '0')}-05`;
+            } else {
+                dueDate = document.getElementById('reg-date-manual').value;
+            }
+
+            if (!name || !phone || !price) return alert('Lengkapi data!');
+
+            db.collection("customers").add({ name, phone, bandwidth: bw, price, dueDate, status: 'Belum Bayar' })
+            .then(() => {
+                alert('Pelanggan tersimpan secara online!');
+                switchTab('dashboard');
+            });
+        }
+
+        function renderDashboard() {
+            const tbody = document.getElementById('customer-table-body');
+            tbody.innerHTML = '';
+            let totalIncome = 0, totalUnpaid = 0;
+
+            customersData.forEach(c => {
+                if (c.status === 'Lunas') totalIncome += c.price;
+                else totalUnpaid += c.price;
+
+                const tr = document.createElement('tr');
+                if (c.status === 'Belum Bayar') tr.classList.add('unpaid-card');
+
+                tr.innerHTML = `
+                    <td>${c.name}</td><td>${c.phone}</td><td>${c.bandwidth}</td>
+                    <td>Rp ${c.price.toLocaleString()}</td><td>${c.dueDate}</td>
+                    <td><span class="badge ${c.status === 'Lunas' ? 'badge-success' : 'badge-danger'}">${c.status}</span></td>
+                    <td>
+                        ${c.status === 'Belum Bayar' ? `<button class="btn-success" onclick="markPaid('${c.id}')">Tep Lunas</button>` : ''}
+                        <button class="btn-danger" onclick="deleteCustomer('${c.id}')">Hapus</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('stat-total-cust').innerText = customersData.length;
+            document.getElementById('stat-income').innerText = `Rp ${totalIncome.toLocaleString()}`;
+            document.getElementById('stat-unpaid').innerText = `Rp ${totalUnpaid.toLocaleString()}`;
+        }
+
+        function markPaid(id) {
+            const cust = customersData.find(c => c.id === id);
+            if (cust) {
+                db.collection("customers").doc(id).update({ status: 'Lunas' });
+                db.collection("history").add({
+                    name: cust.name, phone: cust.phone, amount: cust.price, date: new Date().toLocaleDateString('id-ID')
+                });
+            }
+        }
+
+        function deleteCustomer(id) {
+            if (confirm('Hapus pelanggan?')) db.collection("customers").doc(id).delete();
+        }
+
+        function searchCustomer() {
+            const q = document.getElementById('search-input').value.toLowerCase();
+            const tbody = document.getElementById('search-table-body');
+            tbody.innerHTML = '';
+            customersData.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q)).forEach(c => {
+                tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone}</td><td>${c.bandwidth}</td><td>${c.status}</td></tr>`;
+            });
+        }
+
+        function renderHistory() {
+            const tbody = document.getElementById('history-table-body');
+            tbody.innerHTML = '';
+            historyData.forEach(h => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${h.date}</td><td>${h.name}</td><td>Rp ${parseInt(h.amount).toLocaleString()}</td>
+                        <td><button class="btn-success" onclick="shareWA('${h.phone}', '${h.name}', '${h.amount}')">WA Struk</button></td>
+                    </tr>`;
+            });
+        }
+
+        function shareWA(phone, name, amount) {
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Halo ${name}, pembayaran WiFi ECHOLINK sebesar Rp ${parseInt(amount).toLocaleString()} sudah LUNAS.`)}`, '_blank');
+        }
+
+        function clearHistory() {
+            if (confirm('Hapus seluruh history?')) {
+                historyData.forEach(h => db.collection("history").doc(h.id).delete());
+            }
+        }
+
+        function showUserPortal() {
+            switchTab('user');
+            document.getElementById('user-display-name').innerText = currentUser.name;
+            const statusCard = document.getElementById('user-bill-status');
+            const amountCard = document.getElementById('user-bill-amount');
+
+            if (currentUser.status === 'Belum Bayar') {
+                statusCard.innerText = "Belum Dibayar";
+                statusCard.style.color = "var(--danger-red)";
+                amountCard.innerText = `Tagihan: Rp ${currentUser.price.toLocaleString()} (Jatuh tempo: ${currentUser.dueDate})`;
+            } else {
+                statusCard.innerText = "Lunas";
+                statusCard.style.color = "var(--success-green)";
+                amountCard.innerText = "Tagihan bulan ini sudah LUNAS.";
+            }
+        }
+
+        function confirmPaymentWA() {
+            window.open(`https://wa.me/${ADMIN_WA}?text=${encodeURIComponent(`Halo Admin ECHOLINK, saya ${currentUser.name} (${currentUser.phone}) telah bayar tagihan WiFi.`)}`, '_blank');
+        }
+    </script>
+</body>
+</html>
